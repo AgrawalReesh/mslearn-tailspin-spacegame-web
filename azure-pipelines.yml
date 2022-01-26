@@ -3,36 +3,53 @@
 # Add steps that publish symbols, save build artifacts, and more:
 # https://docs.microsoft.com/azure/devops/pipelines/languages/dotnet-core
 
+# Trigger on any branch not just main
 trigger:
-- main
+  - "*"
 
+# This makes sure we have a linux image with npm installed
 pool:
-  vmImage: 'windows-latest'
+  vmImage: "ubuntu-20.04"
+  demands:
+    - npm
 
 variables:
-  solution: '**/*.sln'
-  buildPlatform: 'Any CPU'
-  buildConfiguration: 'Release'
+  buildConfiguration: "Release"
 
-# task basically points to the actual script 
 steps:
-- task: NuGetToolInstaller@1
+  # This makes sure we have the full DotNet SDK
+  - task: UseDotnet@2
+    displayName: "Use .NET SDK 5.x"
+    inputs:
+      packageType: sdk
+      version: "5.x"
 
-# task can be accompanied by inputs - each task can specify its own input 
-# here we access the input with '$()' which has access to variables defined under 'variables'
-- task: NuGetCommand@2
-  inputs:
-    restoreSolution: '$(solution)'
+  # This makes sure we run npm install
+  - task: Npm@1
+    displayName: "Run npm install"
+    inputs:
+      verbose: false
 
-# VSBuild? /p:?
-- task: VSBuild@1
-  inputs:
-    solution: '$(solution)'
-    msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:DesktopBuildPackageLocation="$(build.artifactStagingDirectory)\WebApp.zip" /p:DeployIisAppPath="Default Web Site"'
-    platform: '$(buildPlatform)'
-    configuration: '$(buildConfiguration)'
+  # Here we have a custom command to compile CSS
+  - script: "./node_modules/.bin/node-sass Tailspin.SpaceGame.Web/wwwroot --output Tailspin.SpaceGame.Web/wwwroot"
+    displayName: "Compile Sass assets"
 
-- task: VSTest@2
-  inputs:
-    platform: '$(buildPlatform)'
-    configuration: '$(buildConfiguration)'
+  - task: gulp@1
+    displayName: "Run gulp tasks"
+
+  - script: 'echo "$(Build.DefinitionName), $(Build.buildId), $(Build.buildNUmber)" > buildinfo.txt'
+    displayName: "Write build info"
+    workingDirectory: Tailspin.SpaceGame.Web/wwwroot
+
+  - task: DotNetCoreCLI@2
+    displayName: "Restore project dependencies"
+    inputs:
+      command: "restore"
+      projects: "**/*.csproj"
+
+  - task: DotNetCoreCLI@2
+    displayName: "Build the project - Release"
+    inputs:
+      command: "build"
+      arguments: "--no-restore -- configuration Release"
+      projects: "**/*.csproj"
